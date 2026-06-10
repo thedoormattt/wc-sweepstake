@@ -44,16 +44,71 @@ function sample() {
   const iso = (ms) => new Date(now + ms).toISOString();
   const t = (name, tla) => ({ name, shortName: name, tla, crest: null });
   return [
-    { id: 1, utcDate: iso(-3 * 3600e3), status: "FINISHED", stage: "GROUP_STAGE", group: "GROUP_A", matchday: 1,
-      home: t("Mexico", "MEX"), away: t("South Africa", "RSA"), winner: "HOME_TEAM", homeScore: 2, awayScore: 1 },
-    { id: 2, utcDate: iso(-25 * 60e3), status: "IN_PLAY", stage: "GROUP_STAGE", group: "GROUP_H", matchday: 1,
-      home: t("Spain", "ESP"), away: t("Cape Verde", "CPV"), winner: null, homeScore: 1, awayScore: 0 },
-    { id: 3, utcDate: iso(2 * 3600e3), status: "TIMED", stage: "GROUP_STAGE", group: "GROUP_L", matchday: 1,
-      home: t("Portugal", "POR"), away: t("Norway", "NOR"), winner: null, homeScore: null, awayScore: null },
-    { id: 4, utcDate: iso(25 * 3600e3), status: "TIMED", stage: "GROUP_STAGE", group: "GROUP_D", matchday: 1,
-      home: t("United States", "USA"), away: t("Turkey", "TUR"), winner: null, homeScore: null, awayScore: null },
-    { id: 5, utcDate: iso(48 * 3600e3), status: "TIMED", stage: "GROUP_STAGE", group: "GROUP_K", matchday: 1,
-      home: t("France", "FRA"), away: t("Sweden", "SWE"), winner: null, homeScore: null, awayScore: null },
+    {
+      id: 1,
+      utcDate: iso(-3 * 3600e3),
+      status: "FINISHED",
+      stage: "GROUP_STAGE",
+      group: "GROUP_A",
+      matchday: 1,
+      home: t("Mexico", "MEX"),
+      away: t("South Africa", "RSA"),
+      winner: "HOME_TEAM",
+      homeScore: 2,
+      awayScore: 1,
+    },
+    {
+      id: 2,
+      utcDate: iso(-25 * 60e3),
+      status: "IN_PLAY",
+      stage: "GROUP_STAGE",
+      group: "GROUP_H",
+      matchday: 1,
+      home: t("Spain", "ESP"),
+      away: t("Cape Verde", "CPV"),
+      winner: null,
+      homeScore: 1,
+      awayScore: 0,
+    },
+    {
+      id: 3,
+      utcDate: iso(2 * 3600e3),
+      status: "TIMED",
+      stage: "GROUP_STAGE",
+      group: "GROUP_L",
+      matchday: 1,
+      home: t("Portugal", "POR"),
+      away: t("Norway", "NOR"),
+      winner: null,
+      homeScore: null,
+      awayScore: null,
+    },
+    {
+      id: 4,
+      utcDate: iso(25 * 3600e3),
+      status: "TIMED",
+      stage: "GROUP_STAGE",
+      group: "GROUP_D",
+      matchday: 1,
+      home: t("United States", "USA"),
+      away: t("Turkey", "TUR"),
+      winner: null,
+      homeScore: null,
+      awayScore: null,
+    },
+    {
+      id: 5,
+      utcDate: iso(48 * 3600e3),
+      status: "TIMED",
+      stage: "GROUP_STAGE",
+      group: "GROUP_K",
+      matchday: 1,
+      home: t("France", "FRA"),
+      away: t("Sweden", "SWE"),
+      winner: null,
+      homeScore: null,
+      awayScore: null,
+    },
   ];
 }
 
@@ -61,18 +116,40 @@ module.exports = async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
 
   if (!TOKEN) {
-    res.status(200).json({ source: "sample", updated: Date.now() / 1000, matches: sample() });
+    res
+      .status(200)
+      .json({
+        source: "sample",
+        updated: Date.now() / 1000,
+        matches: sample(),
+      });
     return;
   }
 
   try {
-    const r = await fetch(`https://api.football-data.org/v4/competitions/${COMP}/matches`, {
-      headers: { "X-Auth-Token": TOKEN },
-    });
+    const r = await fetch(
+      `https://api.football-data.org/v4/competitions/${COMP}/matches`,
+      {
+        headers: { "X-Auth-Token": TOKEN },
+      },
+    );
     if (!r.ok) throw new Error(`feed responded ${r.status}`);
     const raw = (await r.json()).matches || [];
-    res.status(200).json({ source: "live", updated: Date.now() / 1000, matches: raw.map(trim) });
+    res
+      .status(200)
+      .json({
+        source: "live",
+        updated: Date.now() / 1000,
+        matches: raw.map(trim),
+      });
   } catch (e) {
-    res.status(200).json({ source: "error", error: String(e), updated: Date.now() / 1000, matches: [] });
+    res
+      .status(200)
+      .json({
+        source: "error",
+        error: String(e),
+        updated: Date.now() / 1000,
+        matches: [],
+      });
   }
 };
