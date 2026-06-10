@@ -273,9 +273,12 @@
       .days {
         display: flex;
         overflow-x: auto;
+        overflow-y: hidden;
+        align-items: flex-start;
         scroll-snap-type: x mandatory;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: none;
+        transition: height 0.18s ease;
       }
       .days::-webkit-scrollbar {
         display: none;
@@ -894,6 +897,7 @@
         }).join("");
         scroller.scrollLeft = dayIndex * scroller.clientWidth; // keep position across refreshes
         updateDayUI(dayIndex);
+        setDayHeight(dayIndex);
       }
 
       function updateDayUI(i) {
@@ -907,8 +911,15 @@
         dayNext.disabled = i >= DAYS.length - 1;
       }
 
+      // Size the scroller to the day in view so short days don't leave empty space.
+      function setDayHeight(i) {
+        const page = scroller.children[i];
+        if (page) scroller.style.height = page.offsetHeight + "px";
+      }
+
       function dayGo(delta) {
         const i = Math.max(0, Math.min(DAYS.length - 1, dayIndex + delta));
+        setDayHeight(i);
         scroller.scrollTo({
           left: i * scroller.clientWidth,
           behavior: "smooth",
@@ -930,10 +941,15 @@
               const i = Math.round(scroller.scrollLeft / scroller.clientWidth);
               if (i !== dayIndex) dayIndex = i;
               updateDayUI(i);
+              setDayHeight(i);
             });
           },
           { passive: true },
         );
+        window.addEventListener("resize", () => {
+          scroller.scrollLeft = dayIndex * scroller.clientWidth;
+          setDayHeight(dayIndex);
+        });
       }
 
       function matchCard(m, d) {
