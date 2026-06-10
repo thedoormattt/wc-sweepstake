@@ -215,6 +215,80 @@
         text-align: center;
       }
 
+      /* Day pager */
+      .day-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 24px 2px 10px;
+      }
+      .day-head .lbl {
+        font-size: 11.5px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .day-head .rule {
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+      }
+      .day-head .day-count {
+        font-size: 11px;
+        color: var(--faint);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      .day-nav-group {
+        display: flex;
+        gap: 6px;
+        flex: none;
+      }
+      .day-nav {
+        appearance: none;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--muted);
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        font-size: 16px;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+      }
+      .day-nav:hover:not(:disabled) {
+        border-color: var(--pitch);
+        color: var(--pitch);
+      }
+      .day-nav:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+      .days {
+        display: flex;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+      .days::-webkit-scrollbar {
+        display: none;
+      }
+      .day-page {
+        flex: 0 0 100%;
+        min-width: 0;
+        scroll-snap-align: start;
+      }
+      .day-page .match:last-child {
+        margin-bottom: 0;
+      }
+
       /* Person */
       .person {
         background: var(--card);
@@ -520,8 +594,18 @@
     </header>
 
     <main class="wrap">
-      <div class="eyebrow">Today</div>
-      <div id="today"></div>
+      <div class="day-head">
+        <span class="lbl" id="day-label">Today</span>
+        <span class="rule"></span>
+        <span class="day-count" id="day-count"></span>
+        <span class="day-nav-group">
+          <button class="day-nav" id="day-prev" aria-label="Previous day">
+            ‹
+          </button>
+          <button class="day-nav" id="day-next" aria-label="Next day">›</button>
+        </span>
+      </div>
+      <div class="days" id="today"></div>
 
       <div class="eyebrow">The pool</div>
       <div id="people"></div>
@@ -747,26 +831,109 @@
         return `<img class="${cls}" src="${url}" alt="" loading="lazy" onerror="this.style.display='none'">`;
       }
 
-      /* ---------- render: today ---------- */
-      function renderToday() {
-        const el = document.getElementById("today");
-        const now = new Date();
-        let list = MATCHES.map((m) => ({ m, d: new Date(m.utcDate) }))
-          .filter((x) => sameDay(x.d, now))
-          .sort((a, b) => a.d - b.d);
+      /* ---------- render: day pager ---------- */
+      let DAYS = [];
+      let dayIndex = 0;
+      let scroller, dayPrev, dayNext;
 
-        if (!list.length) {
-          const next = MATCHES.map((m) => ({ m, d: new Date(m.utcDate) }))
-            .filter((x) => ACTIVE.has(x.m.status) && x.d > now)
-            .sort((a, b) => a.d - b.d)[0];
-          el.innerHTML = `<div class="empty">No matches today.${
-            next
-              ? ` Next up: <b>${teamLabel(next.m.home)} v ${teamLabel(next.m.away)}</b>, ${fmtDay(next.d)} ${fmtTime(next.d)}.`
-              : ""
-          }</div>`;
-          return;
+      const startOfDay = (d) =>
+        new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const dayDiff = (date) =>
+        Math.round((startOfDay(date) - startOfDay(new Date())) / 86400000);
+      function dayLabelFor(date) {
+        const n = dayDiff(date);
+        if (n === 0) return "Today";
+        if (n === 1) return "Tomorrow";
+        return date.toLocaleDateString([], {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+        });
+      }
+
+      // Build one page per upcoming day that has fixtures (Today always included, even if empty).
+      function buildDays() {
+        const t0 = startOfDay(new Date());
+        const byDay = new Map();
+        for (const m of MATCHES) {
+          const d = new Date(m.utcDate);
+          if (startOfDay(d) < t0) continue; // forward only
+          const k = d.toDateString();
+          if (!byDay.has(k)) byDay.set(k, []);
+          byDay.get(k).push(m);
         }
-        el.innerHTML = list.map(({ m, d }) => matchCard(m, d)).join("");
+        if (!byDay.has(t0.toDateString())) byDay.set(t0.toDateString(), []);
+        return [...byDay.entries()]
+          .map(([k, ms]) => ({
+            date: new Date(k),
+            ms: ms.sort((a, b) => new Date(a.utcDate) - new Date(b.utcDate)),
+          }))
+          .sort((a, b) => a.date - b.date);
+      }
+
+      function emptyDayHTML() {
+        const now = new Date();
+        const next = MATCHES.map((m) => ({ m, d: new Date(m.utcDate) }))
+          .filter((x) => ACTIVE.has(x.m.status) && x.d > now)
+          .sort((a, b) => a.d - b.d)[0];
+        return `<div class="empty">No matches today.${
+          next
+            ? ` Next up: <b>${teamLabel(next.m.home)} v ${teamLabel(next.m.away)}</b>, ${fmtDay(next.d)} ${fmtTime(next.d)}.`
+            : ""
+        }</div>`;
+      }
+
+      function renderToday() {
+        DAYS = buildDays();
+        dayIndex = Math.max(0, Math.min(DAYS.length - 1, dayIndex));
+        scroller.innerHTML = DAYS.map((day) => {
+          const inner = day.ms.length
+            ? day.ms.map((m) => matchCard(m, new Date(m.utcDate))).join("")
+            : emptyDayHTML();
+          return `<div class="day-page">${inner}</div>`;
+        }).join("");
+        scroller.scrollLeft = dayIndex * scroller.clientWidth; // keep position across refreshes
+        updateDayUI(dayIndex);
+      }
+
+      function updateDayUI(i) {
+        if (!DAYS[i]) return;
+        document.getElementById("day-label").textContent = dayLabelFor(
+          DAYS[i].date,
+        );
+        document.getElementById("day-count").textContent =
+          DAYS.length > 1 ? `${i + 1} / ${DAYS.length}` : "";
+        dayPrev.disabled = i <= 0;
+        dayNext.disabled = i >= DAYS.length - 1;
+      }
+
+      function dayGo(delta) {
+        const i = Math.max(0, Math.min(DAYS.length - 1, dayIndex + delta));
+        scroller.scrollTo({
+          left: i * scroller.clientWidth,
+          behavior: "smooth",
+        });
+      }
+
+      function initDays() {
+        scroller = document.getElementById("today");
+        dayPrev = document.getElementById("day-prev");
+        dayNext = document.getElementById("day-next");
+        dayPrev.addEventListener("click", () => dayGo(-1));
+        dayNext.addEventListener("click", () => dayGo(1));
+        let raf;
+        scroller.addEventListener(
+          "scroll",
+          () => {
+            cancelAnimationFrame(raf);
+            raf = requestAnimationFrame(() => {
+              const i = Math.round(scroller.scrollLeft / scroller.clientWidth);
+              if (i !== dayIndex) dayIndex = i;
+              updateDayUI(i);
+            });
+          },
+          { passive: true },
+        );
       }
 
       function matchCard(m, d) {
@@ -962,6 +1129,7 @@
             "Couldn’t reach the server — retrying…";
         }
       }
+      initDays();
       load();
       setInterval(load, 60000);
     </script>
