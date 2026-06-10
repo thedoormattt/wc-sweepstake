@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "name": "wc26-sweepstake",
+  "version": "1.0.0",
+  "description": "No-login mobile World Cup sweepstake tracker",
+  "engines": {
+    "node": "20.x"
+  }
+}
