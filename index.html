@@ -419,6 +419,25 @@
       .st.pending {
         color: var(--amber);
       }
+      .chip.champion {
+        color: #3a2e08;
+        background: #e9c75a;
+        border-color: #d4af37;
+        border-style: solid;
+      }
+      .chip.champion .name {
+        font-weight: 800;
+      }
+      .chip.champion .mark {
+        color: #6b5410;
+      }
+      .pip.champion {
+        background: #d4af37;
+        border: none;
+      }
+      .st.champion {
+        color: #a07d12;
+      }
 
       /* Sheet (team detail) */
       .backdrop {
@@ -630,8 +649,8 @@
       <div id="people"></div>
 
       <footer>
-        Tap a team for its results &amp; fixtures. Green = still in, amber =
-        through pending the draw or awaiting the best-3rd cut, grey = out.<br />
+        Tap a team for its results &amp; fixtures. Green = in, amber = through
+        pending the draw / best-3rd cut, gold = champion, grey = out.<br />
         Data:
         <a href="https://www.football-data.org" target="_blank" rel="noopener"
           >football-data.org</a
@@ -795,14 +814,19 @@
       function teamStatus(team) {
         const ms = teamMatches(team);
         if (!ms.length) return "unknown";
-        if (ms.some((m) => ACTIVE.has(m.status))) return "in"; // a fixture still to play (group or assigned knockout)
+        // a scheduled fixture keeps you alive — but the 3rd-place play-off is for teams already out of the cup
+        if (ms.some((m) => ACTIVE.has(m.status) && m.stage !== "THIRD_PLACE"))
+          return "in";
         const kos = ms.filter(
           (m) => m.stage !== "GROUP_STAGE" && m.status === "FINISHED",
         );
         if (kos.length) {
           // already played a knockout tie
           const last = kos[kos.length - 1];
-          return wonMatch(last, team) ? "pending" : "out"; // won → awaiting next-round draw; lost → out
+          if (last.stage === "FINAL")
+            return wonMatch(last, team) ? "champion" : "out"; // lifted the trophy, or runner-up
+          if (last.stage === "THIRD_PLACE") return "out"; // 3rd or 4th — done either way
+          return wonMatch(last, team) ? "pending" : "out"; // R32–SF: won → awaiting next-round draw; lost → out
         }
         const pos = groupPositionOf(team); // group games done, knockout not yet assigned
         if (!pos) return "out";
@@ -1120,7 +1144,13 @@
             const statuses = order.map(teamStatus);
             const inCount = statuses.filter((s) => s !== "out").length;
             const pipCls = (s) =>
-              s === "out" ? "out" : s === "pending" ? "pending" : "";
+              s === "out"
+                ? "out"
+                : s === "pending"
+                  ? "pending"
+                  : s === "champion"
+                    ? "champion"
+                    : "";
             const pips = statuses
               .map((s) => `<span class="pip ${pipCls(s)}"></span>`)
               .join("");
@@ -1146,9 +1176,21 @@
       function chip(team, status) {
         const meta = teamMeta(team);
         const cls =
-          status === "out" ? "out" : status === "pending" ? "pending" : "in";
+          status === "out"
+            ? "out"
+            : status === "pending"
+              ? "pending"
+              : status === "champion"
+                ? "champion"
+                : "in";
         const mark =
-          status === "out" ? "OUT" : status === "pending" ? "TBC" : "IN";
+          status === "out"
+            ? "OUT"
+            : status === "pending"
+              ? "TBC"
+              : status === "champion"
+                ? "WINNER"
+                : "IN";
         return `<button class="chip ${cls}" data-team="${team}">
     ${crestImg(meta.crest, "crest")}
     <span class="name">${team}</span>
@@ -1166,6 +1208,9 @@
         if (status === "out") {
           label = "Eliminated";
           cls = "out";
+        } else if (status === "champion") {
+          label = "World Cup winners";
+          cls = "champion";
         } else if (status === "pending") {
           const wonKo = teamMatches(team).some(
             (m) => m.stage !== "GROUP_STAGE" && m.status === "FINISHED",
