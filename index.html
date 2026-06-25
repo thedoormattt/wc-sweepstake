@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <meta name="theme-color" content="#16201b" />
-    <title>Vino WC26 Sweepstake</title>
+    <title>WC26 Sweepstake</title>
     <style>
       :root {
         --paper: #f6f4ee;
@@ -403,6 +403,22 @@
         outline: 2px solid var(--pitch);
         outline-offset: 2px;
       }
+      .chip.pending {
+        color: #9a6212;
+        background: var(--amber-soft);
+        border-color: #eecfa0;
+        border-style: solid;
+      }
+      .chip.pending .mark {
+        color: var(--amber);
+      }
+      .pip.pending {
+        background: var(--amber);
+        border: none;
+      }
+      .st.pending {
+        color: var(--amber);
+      }
 
       /* Sheet (team detail) */
       .backdrop {
@@ -614,8 +630,8 @@
       <div id="people"></div>
 
       <footer>
-        Tap a team for its results &amp; fixtures. “Still in” = the team still
-        has a match to play.<br />
+        Tap a team for its results &amp; fixtures. Green = still in, amber =
+        through pending the draw or awaiting the best-3rd cut, grey = out.<br />
         Data:
         <a href="https://www.football-data.org" target="_blank" rel="noopener"
           >football-data.org</a
@@ -779,7 +795,128 @@
       function teamStatus(team) {
         const ms = teamMatches(team);
         if (!ms.length) return "unknown";
-        return ms.some((m) => ACTIVE.has(m.status)) ? "in" : "out";
+        if (ms.some((m) => ACTIVE.has(m.status))) return "in"; // a fixture still to play (group or assigned knockout)
+        const kos = ms.filter(
+          (m) => m.stage !== "GROUP_STAGE" && m.status === "FINISHED",
+        );
+        if (kos.length) {
+          // already played a knockout tie
+          const last = kos[kos.length - 1];
+          return wonMatch(last, team) ? "pending" : "out"; // won → awaiting next-round draw; lost → out
+        }
+        const pos = groupPositionOf(team); // group games done, knockout not yet assigned
+        if (!pos) return "out";
+        if (pos.rank <= 2) return "in"; // group winner / runner-up → through
+        if (pos.rank >= 4) return "out";
+        return allGroupStageDone()
+          ? bestThirdQualifies(team)
+            ? "in"
+            : "out"
+          : "pending"; // 3rd → best-third cut
+      }
+
+      /* ---------- group standings (bridges the gap before the knockout draw lands in the feed) ---------- */
+      let STANDINGS = null;
+      const keyOf = (side) => norm(side.tla) || norm(side.name);
+      function wonMatch(m, team) {
+        const home = sideIsTeam(m.home, team);
+        if (m.winner === "HOME_TEAM") return home;
+        if (m.winner === "AWAY_TEAM") return !home;
+        const p = perspective(m, team);
+        return p.us > p.them;
+      }
+      function recFor(map, side) {
+        const k = keyOf(side);
+        if (!map[k])
+          map[k] = {
+            key: k,
+            name: side.name,
+            shortName: side.shortName,
+            tla: side.tla,
+            played: 0,
+            pts: 0,
+            gf: 0,
+            ga: 0,
+          };
+        return map[k];
+      }
+      const sameKey = (side, rec) => keyOf(side) === rec.key;
+      const recIsTeam = (rec, team) =>
+        sideIsTeam(
+          { name: rec.name, shortName: rec.shortName, tla: rec.tla },
+          team,
+        );
+      function cmpStanding(a, b, matches) {
+        // FIFA order: points, goal difference, goals for, then head-to-head
+        if (b.pts !== a.pts) return b.pts - a.pts;
+        if (b.gd !== a.gd) return b.gd - a.gd;
+        if (b.gf !== a.gf) return b.gf - a.gf;
+        const h = matches.find(
+          (m) =>
+            (sameKey(m.home, a) && sameKey(m.away, b)) ||
+            (sameKey(m.home, b) && sameKey(m.away, a)),
+        );
+        if (h) {
+          const aHome = sameKey(h.home, a);
+          const ag = aHome ? h.homeScore : h.awayScore,
+            bg = aHome ? h.awayScore : h.homeScore;
+          if (ag !== bg) return bg - ag;
+        }
+        return 0;
+      }
+      function computeStandings() {
+        const groups = {};
+        for (const m of MATCHES) {
+          if (m.stage !== "GROUP_STAGE" || m.status !== "FINISHED") continue;
+          const g = m.group;
+          groups[g] = groups[g] || { recs: {}, matches: [] };
+          const H = recFor(groups[g].recs, m.home),
+            A = recFor(groups[g].recs, m.away);
+          const hs = m.homeScore ?? 0,
+            as = m.awayScore ?? 0;
+          H.played++;
+          A.played++;
+          H.gf += hs;
+          H.ga += as;
+          A.gf += as;
+          A.ga += hs;
+          if (hs > as) H.pts += 3;
+          else if (hs < as) A.pts += 3;
+          else {
+            H.pts++;
+            A.pts++;
+          }
+          groups[g].matches.push(m);
+        }
+        const out = {};
+        for (const [g, o] of Object.entries(groups)) {
+          const recs = Object.values(o.recs);
+          recs.forEach((r) => (r.gd = r.gf - r.ga));
+          recs.sort((a, b) => cmpStanding(a, b, o.matches));
+          out[g] = recs;
+        }
+        return out;
+      }
+      function groupPositionOf(team) {
+        if (!STANDINGS) STANDINGS = computeStandings();
+        for (const [g, recs] of Object.entries(STANDINGS)) {
+          const i = recs.findIndex((r) => recIsTeam(r, team));
+          if (i >= 0) return { group: g, rank: i + 1, recs };
+        }
+        return null;
+      }
+      function allGroupStageDone() {
+        const gm = MATCHES.filter((m) => m.stage === "GROUP_STAGE");
+        return gm.length > 0 && gm.every((m) => m.status === "FINISHED");
+      }
+      function bestThirdQualifies(team) {
+        // top 8 of the twelve third-placed teams advance
+        if (!STANDINGS) STANDINGS = computeStandings();
+        const thirds = Object.values(STANDINGS)
+          .map((recs) => recs[2])
+          .filter(Boolean);
+        thirds.sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
+        return thirds.slice(0, 8).some((r) => recIsTeam(r, team));
       }
 
       /* pull a nice short label + crest for a roster team from whatever side it appears on */
@@ -900,6 +1037,12 @@
         setDayHeight(dayIndex);
       }
 
+      // Size the scroller to the day in view so short days don't leave empty space.
+      function setDayHeight(i) {
+        const page = scroller.children[i];
+        if (page) scroller.style.height = page.offsetHeight + "px";
+      }
+
       function updateDayUI(i) {
         if (!DAYS[i]) return;
         document.getElementById("day-label").textContent = dayLabelFor(
@@ -909,12 +1052,6 @@
           DAYS.length > 1 ? `${i + 1} / ${DAYS.length}` : "";
         dayPrev.disabled = i <= 0;
         dayNext.disabled = i >= DAYS.length - 1;
-      }
-
-      // Size the scroller to the day in view so short days don't leave empty space.
-      function setDayHeight(i) {
-        const page = scroller.children[i];
-        if (page) scroller.style.height = page.offsetHeight + "px";
       }
 
       function dayGo(delta) {
@@ -982,10 +1119,10 @@
             const order = teams.slice().reverse();
             const statuses = order.map(teamStatus);
             const inCount = statuses.filter((s) => s !== "out").length;
+            const pipCls = (s) =>
+              s === "out" ? "out" : s === "pending" ? "pending" : "";
             const pips = statuses
-              .map(
-                (s) => `<span class="pip ${s === "out" ? "out" : ""}"></span>`,
-              )
+              .map((s) => `<span class="pip ${pipCls(s)}"></span>`)
               .join("");
             const chips = order.map((t, i) => chip(t, statuses[i])).join("");
             return `<section class="person">
@@ -1008,9 +1145,11 @@
 
       function chip(team, status) {
         const meta = teamMeta(team);
-        const out = status === "out";
-        const mark = out ? "OUT" : "IN";
-        return `<button class="chip ${out ? "out" : "in"}" data-team="${team}">
+        const cls =
+          status === "out" ? "out" : status === "pending" ? "pending" : "in";
+        const mark =
+          status === "out" ? "OUT" : status === "pending" ? "TBC" : "IN";
+        return `<button class="chip ${cls}" data-team="${team}">
     ${crestImg(meta.crest, "crest")}
     <span class="name">${team}</span>
     <span class="mark">${mark}</span>
@@ -1023,13 +1162,27 @@
         const status = teamStatus(team);
         document.getElementById("sheet-name").textContent = team;
         const st = document.getElementById("sheet-status");
-        st.textContent =
-          status === "out"
-            ? "Eliminated"
-            : status === "in"
-              ? "Still in"
-              : "No fixtures found";
-        st.className = "st " + (status === "out" ? "out" : "in");
+        let label, cls;
+        if (status === "out") {
+          label = "Eliminated";
+          cls = "out";
+        } else if (status === "pending") {
+          const wonKo = teamMatches(team).some(
+            (m) => m.stage !== "GROUP_STAGE" && m.status === "FINISHED",
+          );
+          label = wonKo
+            ? "Through — awaiting next round"
+            : "3rd place — awaiting best-third cut";
+          cls = "pending";
+        } else if (status === "in") {
+          label = "Still in";
+          cls = "in";
+        } else {
+          label = "No fixtures found";
+          cls = "in";
+        }
+        st.textContent = label;
+        st.className = "st " + cls;
         const crest = document.getElementById("sheet-crest");
         if (meta.crest) {
           crest.src = meta.crest;
@@ -1137,6 +1290,7 @@
           const j = await r.json();
           MATCHES = j.matches || [];
           SHORT = {};
+          STANDINGS = null;
           setStatus(j.source, j.updated);
           renderToday();
           renderPeople();
